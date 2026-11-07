@@ -12,3 +12,17 @@ def embed(title, description, color=0x2B7FFF, footer=None, fields=None):
     if footer: e['footer'] = {'text': footer[:2000]}
     if fields: e['fields'] = fields
     return send({'embeds': [e]})
+
+def embeds_chunked(title, blocks, more='', footer=None, fields=None, limit=3800):
+    """Discord truncates embed descriptions at 4096 chars; split alert blocks across several embeds so none is silently cut."""
+    chunks, cur = [], ''
+    for b in blocks:
+        if cur and len(cur) + len(b) + 2 > limit: chunks.append(cur); cur = ''
+        cur += ('\n\n' if cur else '') + b
+    if more: cur += ('\n\n' if cur else '') + more
+    if cur: chunks.append(cur)
+    ok = True
+    for i, c in enumerate(chunks):
+        last = i == len(chunks) - 1
+        ok &= embed(title + (f' ({i + 1}/{len(chunks)})' if len(chunks) > 1 else ''), c, footer=footer if last else None, fields=fields if i == 0 else None)
+    return ok

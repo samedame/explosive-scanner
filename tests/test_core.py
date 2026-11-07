@@ -53,7 +53,34 @@ def test_catalyst_tags_and_failsoft():
     from scanner import catalyst
     t = catalyst.tags({'si_dtc': 8.2, 'si_chg': 12.0, 'days_to_next': 9, 'sur_last': .4, 'days_since_rep_eps': 30,
                        'ins_buys_90d': 2, 'ins_buy_usd_90d': 55000, 'sec_8k_items': '2.02(3d)', 'sec_offering_90d': 1, 'sec_merger_90d': 1})
-    assert 'SI 8.2d' in t and 'earnings in 9d' in t and 'last EPS +40%' in t and 'insider buys 2' in t and 'offering' in t and 'merger' in t
+    assert 'SI 8.2d' in t and 'earnings in 9d' in t and 'last EPS +40%' in t and 'insider buys 2' in t and 'offering' in t and 'MERGER' in t
     assert catalyst.tags({'si_dtc': np.nan, 'days_to_next': np.nan}) == ''          # missing data -> no tag, no crash
     import os; os.environ.pop('SEC_CONTACT', None)
     assert catalyst.sec_context('AAPL', '2026-11-06') is None                       # no contact -> unavailable, never a false "no filings"
+
+
+def test_confidence_score_rules():
+    from scanner import confidence as C
+    base = dict(c=20.0, dv50p=3e7, n_signal=1)
+    r = C.score_alert(base); assert r['score'] == 100 and r['tier'] == 'A' and r['setup_scored'] is False
+    # setup weight is frozen at 0: more screens must not change the score
+    assert C.score_alert({**base, 'n_signal': 4})['score'] == r['score']
+    # execution falls with liquidity and with a sub-$5 price
+    assert C.score_alert({**base, 'dv50p': 3e6})['score'] < C.score_alert({**base, 'dv50p': 6e6})['score'] < r['score']
+    assert C.score_alert({**base, 'c': 3.5})['score'] < r['score']
+    # caps: stale data -> tier D, merger/tender -> at most tier C
+    assert C.score_alert(base, fresh=False)['tier'] == 'D' and C.score_alert(base, fresh=False)['score'] <= 49
+    m = C.score_alert(base, merger=True); assert m['score'] == 69 and m['tier'] == 'C' and m['warnings']
+    # offering / equity sale are warnings without a cap
+    assert C.score_alert(base, offering=True, equity_sale=True)['score'] == 100
+    # odds line uses the multi-screen bucket for n>=2 and mentions the recent regime
+    assert 'Odds:' in C.line(C.score_alert({**base, 'n_signal': 2})) and C.score_alert({**base, 'n_signal': 2})['odds_p'] > r['odds_p']
+
+
+def test_embeds_are_chunked_not_truncated(monkeypatch):
+    from scanner import notify
+    sent = []
+    monkeypatch.setattr(notify, 'embed', lambda title, d, **k: sent.append((title, d)) or True)
+    notify.embeds_chunked('T', ['x' * 900] * 10, more='more')
+    assert len(sent) >= 3 and all(len(d) <= 3900 for _, d in sent) and sum(d.count('x') for _, d in sent) == 9000
+    assert sent[-1][1].endswith('more')

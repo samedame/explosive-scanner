@@ -2,16 +2,16 @@
 Usage: python -m scanner.run_daily [--asof YYYY-MM-DD] [--dry-run] [--max-symbols N] [--force]"""
 import argparse, json, os, sys, datetime as dt, traceback
 import numpy as np, pandas as pd
-from . import features, universe, data, notify, catalyst
+from . import features, universe, data, notify, catalyst, confidence
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATE = os.path.join(ROOT, 'state', 'state.json')
 SNAPDIR = os.path.join(ROOT, 'data', 'snapshots')
 ALERTS = os.path.join(ROOT, 'data', 'alerts.csv')
 CATS = os.path.join(ROOT, 'data', 'alert_catalysts.csv')
-MAX_SEC = 15           # SEC lookups per run (alerted names only)
+MAX_SEC = 40           # SEC lookups per run (alerted names only)
 COOLDOWN = 20          # sessions between alerts on the same symbol (= backtest episode cooldown)
-MAX_LISTED = 20
+MAX_LISTED = 40
 MIN_ELIGIBLE = 1500    # below this the data pull is considered broken
 FOOT = 'UNVALIDATED research alert: no screen passed the pre-registered backtest gate (best lift 1.25-1.35x). Not a buy signal. Size accordingly. Catalyst tags (short interest, earnings, filings, insiders) are context only: they failed the pre-registered out-of-sample test.'
 
@@ -98,16 +98,24 @@ def main(argv=None):
             sec = sec_for(new, asof)
             def tag(s_, r_):
                 d = r_.to_dict(); d.update(sec.get(s_, {})); return catalyst.tags(d)
-            lines = [fmt(s_, r_, tag(s_, r_)) for s_, r_ in new.head(MAX_LISTED).iterrows()]
-            more = f'\n…and {len(new) - MAX_LISTED} more in data/alerts.csv' if len(new) > MAX_LISTED else ''
+            fresh = (dt.date.today() - asof.date()).days <= 4 or bool(a.asof)   # --asof replays are historical by design
+            confs = {}
+            for s_, r_ in new.iterrows():
+                x = sec.get(s_, {})
+                confs[s_] = confidence.score_alert(r_, fresh=fresh, merger=(x.get('sec_merger_90d', 0) or 0) > 0,
+                                                   offering=(x.get('sec_offering_90d', 0) or 0) > 0, equity_sale='3.02' in (x.get('sec_8k_items') or ''))
+            order = sorted(new.index, key=lambda k: (-confs[k]['score'], -new.loc[k, 'n_signal'], -new.loc[k, 'dv50p']))
+            blocks = [fmt(s_, new.loc[s_], tag(s_, new.loc[s_])) + '\n　' + confidence.line(confs[s_]) for s_ in order[:MAX_LISTED]]
+            more = f'…and {len(new) - MAX_LISTED} more in data/alerts.csv' if len(new) > MAX_LISTED else ''
             legend = '\n'.join(f'`{k}` {v}' for k, v in features.SCREEN_TEXT.items() if k in features.SIGNAL_SCREENS)
-            notify.embed(f'🔭 Explosive-Scanner · {asof.date()} · {len(new)} new', '\n'.join(lines) + more,
-                         footer=FOOT, fields=[{'name': 'Screens', 'value': legend[:1000]}])
+            notify.embeds_chunked(f'🔭 Explosive-Scanner · {asof.date()} · {len(new)} new', blocks, more=more, footer=FOOT,
+                                  fields=[{'name': 'Screens', 'value': legend[:1000]}])
             rows = new[['c', 'dv50p', 'rs', 'dhi', 'd200'] + features.SIGNAL_SCREENS].copy()
             rows.insert(0, 'date', str(asof.date())); rows[features.SIGNAL_SCREENS] = rows[features.SIGNAL_SCREENS].astype(int)
             rows.round(4).to_csv(ALERTS, mode='a', header=not os.path.exists(ALERTS))
             cat = new[[c for c in CATCOLS if c in new.columns]].copy()
             if sec: cat = cat.join(pd.DataFrame.from_dict(sec, orient='index'))
+            cat = cat.join(pd.DataFrame.from_dict({k: {'conf': v['score'], 'tier': v['tier'], 'execution': v['execution'], 'odds_p': v['odds_p'], 'caps': ';'.join(v['caps'])} for k, v in confs.items()}, orient='index'))
             cat.insert(0, 'date', str(asof.date()))
             cat.round(4).to_csv(CATS, mode='a', header=not os.path.exists(CATS))
             for s in new.index: state['last_alert'][s] = str(asof.date())

@@ -40,3 +40,6 @@ Local dry run (prints instead of posting): `pip install -r requirements.txt && p
 
 ## Catalyst context (new)
 Each alert carries a second line with short interest, earnings timing/surprise, recent SEC filings and insider trades. These are **context only**: they failed the pre-registered out-of-sample test (see `docs/CATALYSTS.md`). To enable the SEC part add a repository secret `SEC_CONTACT` (your email) under Settings > Secrets and variables > Actions.
+
+## Alert score (new)
+Each alert prints historical odds and a Tradeability score (A-D). Tradeability measures cost and data quality only and was validated as *not* predicting explosions (see `docs/CONFIDENCE.md`). Merger/tender filings cap the tier at C. Long alert lists are now split across several Discord messages instead of being cut off.

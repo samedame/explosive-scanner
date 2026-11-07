@@ -157,6 +157,6 @@ def tags(r):
     if (g('ins_sells_90d') or 0) >= 3: out.append(f"insider sells {int(g('ins_sells_90d'))}")
     if g('sec_8k_items'): out.append('8-K ' + g('sec_8k_items'))
     if (g('sec_13d_90d') or 0) > 0: out.append('13D/G filed')
-    if (g('sec_offering_90d') or 0) > 0: out.append('⚠ offering filing')
-    if (g('sec_merger_90d') or 0) > 0: out.append('⚠ merger/tender filing')
+    if (g('sec_offering_90d') or 0) > 0: out.append('ℹ offering filing (dilution risk; history mixed)')
+    if (g('sec_merger_90d') or 0) > 0: out.append('⚠ MERGER/TENDER filing (pending deal pins price)')
     return ' · '.join(out)
