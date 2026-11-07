@@ -16,7 +16,7 @@ An AUC of 0.5 is a coin flip. So the shipped score (execution only, setup weight
 | Screens firing | Alerts | Gained +50% in 63 sessions (95% CI) | 2019-21 | 2022-23 |
 |---|---|---|---|---|
 | 1 | 4,153 | 10.3% (9.4-11.3%) | 13.6% | 5.4% |
-| 2 or more | 227 | 18.1% (13.5-23.6%) | 20% | 15% (n=79) |
+| 2 or more | 227 | 18.1% (13.6-23.6%) | 20% | 14% (n=85) |
 
 The base rate fell from 14% to 6% between the two periods, so treat the pooled number as a generous upper estimate.
 

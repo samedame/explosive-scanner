@@ -12,7 +12,7 @@ import datetime as dt
 SETUP_WEIGHT = 0.0          # frozen by the V1 gate; do not raise without a new pre-registered test that passes
 EXEC_WEIGHT = 1.0 - SETUP_WEIGHT
 # pooled 2019-01..2023-09 episode hit rates for max close >= +50% within 63 sessions (docs/confidence_v5_hit_rates.csv)
-ODDS = {1: dict(p=0.103, n=4153, recent=0.054), 2: dict(p=0.181, n=227, recent=0.152)}   # bucket 2 = two or more screens
+ODDS = {1: dict(p=0.103, n=4153, recent=0.054), 2: dict(p=0.181, n=227, recent=0.141)}   # bucket 2 = two or more screens
 
 def _liq(dv): return 1.0 if dv >= 2e7 else 0.75 if dv >= 5e6 else 0.5
 def _px(c): return 1.0 if c >= 5 else 0.6
