@@ -18,6 +18,7 @@ jobs:
       - name: Run scan
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          SEC_CONTACT: ${{ secrets.SEC_CONTACT }}   # your email; SEC requires a declared contact. Optional: without it SEC tags are skipped
         run: python -m scanner.run_daily
       - name: Commit state, snapshots and alert log
         run: |

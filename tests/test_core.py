@@ -46,3 +46,14 @@ def test_rulex_cases():
 
 if __name__ == '__main__':
     test_features_match_plain_loops(); test_no_lookahead(); test_rulex_cases(); print('all tests passed')
+
+
+def test_catalyst_tags_and_failsoft():
+    import numpy as np
+    from scanner import catalyst
+    t = catalyst.tags({'si_dtc': 8.2, 'si_chg': 12.0, 'days_to_next': 9, 'sur_last': .4, 'days_since_rep_eps': 30,
+                       'ins_buys_90d': 2, 'ins_buy_usd_90d': 55000, 'sec_8k_items': '2.02(3d)', 'sec_offering_90d': 1, 'sec_merger_90d': 1})
+    assert 'SI 8.2d' in t and 'earnings in 9d' in t and 'last EPS +40%' in t and 'insider buys 2' in t and 'offering' in t and 'merger' in t
+    assert catalyst.tags({'si_dtc': np.nan, 'days_to_next': np.nan}) == ''          # missing data -> no tag, no crash
+    import os; os.environ.pop('SEC_CONTACT', None)
+    assert catalyst.sec_context('AAPL', '2026-11-06') is None                       # no contact -> unavailable, never a false "no filings"

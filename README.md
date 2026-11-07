@@ -37,3 +37,6 @@ Local dry run (prints instead of posting): `pip install -r requirements.txt && p
 
 ## Tests
 `python tests/test_core.py` (features vs plain loops, no look-ahead, Rule X cases).
+
+## Catalyst context (new)
+Each alert carries a second line with short interest, earnings timing/surprise, recent SEC filings and insider trades. These are **context only**: they failed the pre-registered out-of-sample test (see `docs/CATALYSTS.md`). To enable the SEC part add a repository secret `SEC_CONTACT` (your email) under Settings > Secrets and variables > Actions.
