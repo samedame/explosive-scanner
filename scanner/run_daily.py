@@ -115,7 +115,7 @@ def main(argv=None):
                 x = sec.get(s_, {})
                 confs[s_] = confidence.score_alert(r_, fresh=fresh, merger=(x.get('sec_merger_90d', 0) or 0) > 0,
                                                    offering=(x.get('sec_offering_90d', 0) or 0) > 0, equity_sale='3.02' in (x.get('sec_8k_items') or ''))
-            order = sorted(new.index, key=lambda k: (-confs[k]['score'], -new.loc[k, 'n_signal'], -new.loc[k, 'dv50p']))
+            order = sorted(new.index, key=lambda k: (-new.loc[k, 'n_signal'], -confs[k]['score'], -new.loc[k, 'dv50p']))   # odds first: only the screen count has validated odds; Tradeability is execution-only
             blocks = [fmt(s_, new.loc[s_], tag(s_, new.loc[s_])) + '\n　' + confidence.line(confs[s_]) for s_ in order[:MAX_LISTED]]
             more = f'…and {len(new) - MAX_LISTED} more in data/alerts.csv' if len(new) > MAX_LISTED else ''
             legend = '\n'.join(f'`{k}` {v}' for k, v in features.SCREEN_TEXT.items() if k in features.SIGNAL_SCREENS)
