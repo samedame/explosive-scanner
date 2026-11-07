@@ -27,6 +27,10 @@ Daily alert bot for stocks whose price/volume footprint has historically precede
 4. Actions tab -> `daily-scan` -> **Run workflow** once to test (takes ~20-30 min: it downloads ~4,800 tickers from Yahoo).
 5. It then runs Mon-Fri 22:30 UTC automatically. The scorecard runs Saturdays.
 
+**Quiet runs are never silent.** Every run that posts no alerts still posts one status line to Discord (`✅ ... ran OK ... 0 new` or `session already scanned`). If a run produces *nothing at all* in Discord, something is wrong before the scan starts: the job fails red in the Actions tab, and (if the webhook secret exists) posts a `❌ job FAILED` message with a link. A missing/empty `DISCORD_WEBHOOK_URL` secret fails the job with an explicit error. Set repo variable-free opt-out with env `HEARTBEAT=0` in the workflow if the daily line is too chatty.
+
+**Re-posting alerts:** Actions -> `daily-scan` -> Run workflow -> tick **resend**. It re-posts the latest session's alerts (ignoring the 20-session cooldown) and writes no state, so it is safe to use for testing. A normal manual run on an already-scanned session only posts the status line, by design (the alert dedupe stops double-posting).
+
 Local dry run (prints instead of posting): `pip install -r requirements.txt && python -m scanner.run_daily --dry-run`
 
 ## Known limitations

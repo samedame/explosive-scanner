@@ -1,5 +1,5 @@
 """Daily scan: download -> features -> snapshot -> alert on NEW signal episodes -> update state.
-Usage: python -m scanner.run_daily [--asof YYYY-MM-DD] [--dry-run] [--max-symbols N] [--force]"""
+Usage: python -m scanner.run_daily [--asof YYYY-MM-DD] [--dry-run] [--max-symbols N] [--force] [--resend] [--no-heartbeat]"""
 import argparse, json, os, sys, datetime as dt, traceback
 import numpy as np, pandas as pd
 from . import features, universe, data, notify, catalyst, confidence
@@ -14,6 +14,11 @@ COOLDOWN = 20          # sessions between alerts on the same symbol (= backtest 
 MAX_LISTED = 40
 MIN_ELIGIBLE = 1500    # below this the data pull is considered broken
 FOOT = 'UNVALIDATED research alert: no screen passed the pre-registered backtest gate (best lift 1.25-1.35x). Not a buy signal. Size accordingly. Catalyst tags (short interest, earnings, filings, insiders) are context only: they failed the pre-registered out-of-sample test.'
+
+def heartbeat(msg, on=True):
+    """One-line status to Discord so a quiet run is never ambiguous (silence = something is broken)."""
+    print(msg)
+    if on: notify.text(msg)
 
 def load_state():
     try: return json.load(open(STATE))
@@ -66,8 +71,13 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('--asof'); ap.add_argument('--dry-run', action='store_true'); ap.add_argument('--force', action='store_true')
     ap.add_argument('--max-symbols', type=int)
+    ap.add_argument('--resend', action='store_true', help='re-post the latest session alerts, ignoring cooldown; writes no state or logs')
+    ap.add_argument('--no-heartbeat', action='store_true')
     a = ap.parse_args(argv)
     if a.dry_run: os.environ.pop('DISCORD_WEBHOOK_URL', None)
+    hb = not a.no_heartbeat and os.environ.get('HEARTBEAT', '1') != '0'
+    if a.resend: a.force = True
+    persist = not (a.dry_run or a.resend)
     state = load_state()
     try:
         tickers = universe.load_universe()
@@ -80,7 +90,8 @@ def main(argv=None):
         asof = C.index[-1]
         print('asof', asof.date(), 'symbols with data', int(C.iloc[-1].notna().sum()))
         if not a.force and state.get('last_asof') == str(asof.date()):
-            print('already processed this session; nothing to do'); return 0
+            heartbeat(f'✅ Explosive-Scanner ran OK · session {asof.date()} was already scanned and alerted earlier, so there is nothing new to post. '
+                      f'(To re-post those alerts, run the workflow with "resend" ticked.)', hb); return 0
         f = features.compute_features(O, H, L, C, V)
         snap = features.snapshot(f, asof)
         print('eligible', len(snap), {s: int(snap[s].sum()) for s in features.ALL_SCREENS})
@@ -88,11 +99,11 @@ def main(argv=None):
             notify.text(f'⚠️ Explosive-Scanner: only {len(snap)} eligible stocks on {asof.date()} (expected 2,500+). Data pull looks broken; no alerts sent.')
             return 1
         snap = add_catalysts(snap, asof)
-        os.makedirs(SNAPDIR, exist_ok=True)
+        if persist: os.makedirs(SNAPDIR, exist_ok=True)
         cols = ['c', 'dv50p', 'rs', 'vdec', 'dhi', 'd200', 'sq', 'vrat'] + features.ALL_SCREENS + CATCOLS
         out = snap[cols].copy(); out[features.ALL_SCREENS] = out[features.ALL_SCREENS].astype(int)
-        out.round(5).to_csv(os.path.join(SNAPDIR, f'{asof.date()}.csv.gz'))
-        new = new_episodes(snap, list(C.index), state, asof)
+        if persist: out.round(5).to_csv(os.path.join(SNAPDIR, f'{asof.date()}.csv.gz'))
+        new = new_episodes(snap, list(C.index), {'last_alert': {}} if a.resend else state, asof)
         print('new episodes', len(new))
         if len(new):
             sec = sec_for(new, asof)
@@ -108,23 +119,27 @@ def main(argv=None):
             blocks = [fmt(s_, new.loc[s_], tag(s_, new.loc[s_])) + '\n　' + confidence.line(confs[s_]) for s_ in order[:MAX_LISTED]]
             more = f'…and {len(new) - MAX_LISTED} more in data/alerts.csv' if len(new) > MAX_LISTED else ''
             legend = '\n'.join(f'`{k}` {v}' for k, v in features.SCREEN_TEXT.items() if k in features.SIGNAL_SCREENS)
-            notify.embeds_chunked(f'🔭 Explosive-Scanner · {asof.date()} · {len(new)} new', blocks, more=more, footer=FOOT,
+            notify.embeds_chunked(f'🔭 Explosive-Scanner · {asof.date()} · {len(new)} new' + (' (re-send)' if a.resend else ''), blocks, more=more, footer=FOOT,
                                   fields=[{'name': 'Screens', 'value': legend[:1000]}])
-            rows = new[['c', 'dv50p', 'rs', 'dhi', 'd200'] + features.SIGNAL_SCREENS].copy()
-            rows.insert(0, 'date', str(asof.date())); rows[features.SIGNAL_SCREENS] = rows[features.SIGNAL_SCREENS].astype(int)
-            rows.round(4).to_csv(ALERTS, mode='a', header=not os.path.exists(ALERTS))
-            cat = new[[c for c in CATCOLS if c in new.columns]].copy()
-            if sec: cat = cat.join(pd.DataFrame.from_dict(sec, orient='index'))
-            cat = cat.join(pd.DataFrame.from_dict({k: {'conf': v['score'], 'tier': v['tier'], 'execution': v['execution'], 'odds_p': v['odds_p'], 'caps': ';'.join(v['caps'])} for k, v in confs.items()}, orient='index'))
-            cat.insert(0, 'date', str(asof.date()))
-            cat.round(4).to_csv(CATS, mode='a', header=not os.path.exists(CATS))
-            for s in new.index: state['last_alert'][s] = str(asof.date())
+            if persist:
+                rows = new[['c', 'dv50p', 'rs', 'dhi', 'd200'] + features.SIGNAL_SCREENS].copy()
+                rows.insert(0, 'date', str(asof.date())); rows[features.SIGNAL_SCREENS] = rows[features.SIGNAL_SCREENS].astype(int)
+                rows.round(4).to_csv(ALERTS, mode='a', header=not os.path.exists(ALERTS))
+                cat = new[[c for c in CATCOLS if c in new.columns]].copy()
+                if sec: cat = cat.join(pd.DataFrame.from_dict(sec, orient='index'))
+                cat = cat.join(pd.DataFrame.from_dict({k: {'conf': v['score'], 'tier': v['tier'], 'execution': v['execution'], 'odds_p': v['odds_p'], 'caps': ';'.join(v['caps'])} for k, v in confs.items()}, orient='index'))
+                cat.insert(0, 'date', str(asof.date()))
+                cat.round(4).to_csv(CATS, mode='a', header=not os.path.exists(CATS))
+                for s in new.index: state['last_alert'][s] = str(asof.date())
         else:
-            print('no new episodes; staying quiet')
-        state['last_asof'] = str(asof.date())
-        # prune old cooldown entries
-        state['last_alert'] = {k: v for k, v in state['last_alert'].items() if (asof - pd.Timestamp(v)).days < 60}
-        if not a.dry_run: save_state(state)
+            nsig = int((snap.n_signal > 0).sum())
+            heartbeat(f'✅ Explosive-Scanner ran OK · {asof.date()} · {len(snap):,} eligible stocks · {nsig} showing a screen signal, '
+                      f'0 new ({nsig} already alerted within the {COOLDOWN}-session cooldown). Nothing to post.', hb)
+        if persist:
+            state['last_asof'] = str(asof.date())
+            # prune old cooldown entries
+            state['last_alert'] = {k: v for k, v in state['last_alert'].items() if (asof - pd.Timestamp(v)).days < 60}
+            save_state(state)
         return 0
     except Exception:
         tb = traceback.format_exc(); print(tb)

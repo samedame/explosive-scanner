@@ -84,3 +84,19 @@ def test_embeds_are_chunked_not_truncated(monkeypatch):
     notify.embeds_chunked('T', ['x' * 900] * 10, more='more')
     assert len(sent) >= 3 and all(len(d) <= 3900 for _, d in sent) and sum(d.count('x') for _, d in sent) == 9000
     assert sent[-1][1].endswith('more')
+
+
+def test_quiet_runs_post_a_heartbeat(monkeypatch, tmp_path):
+    """Silence must never be ambiguous: an already-processed session and a no-new-episode run both post a status line."""
+    import pandas as pd, numpy as np
+    from scanner import run_daily as rd
+    msgs = []
+    monkeypatch.setattr(rd.notify, 'text', lambda m: msgs.append(m) or True)
+    rd.heartbeat('hello', True); rd.heartbeat('muted', False)
+    assert msgs == ['hello']
+    # resend must ignore cooldown and never persist
+    snap = pd.DataFrame({'n_signal': [2, 1], 'dv50p': [1e6, 2e6]}, index=['AAA', 'BBB'])
+    dates = list(pd.bdate_range('2026-10-01', periods=30)); asof = dates[-1]
+    st = {'last_alert': {'AAA': str(dates[-2].date())}}
+    assert list(rd.new_episodes(snap, dates, st, asof).index) == ['BBB']
+    assert set(rd.new_episodes(snap, dates, {'last_alert': {}}, asof).index) == {'AAA', 'BBB'}
